@@ -161,7 +161,11 @@ func main() {
 func healthcheck() int {
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		addr = ":" + port
 	}
 
 	switch {

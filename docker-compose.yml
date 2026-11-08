@@ -5,11 +5,11 @@ services:
     container_name: toque-api
     restart: unless-stopped
     ports:
-      - "${TOQUE_API_PORT:-8080}:8080"
+      - "${TOQUE_API_PORT:-${PORT:-8080}}:${PORT:-8080}"
     environment:
       ELTOQUE_API_KEY: ${ELTOQUE_API_KEY:?ELTOQUE_API_KEY is required}
       ELTOQUE_BASE_URL: ${ELTOQUE_BASE_URL:-https://tasas.eltoque.com/v1/trmi}
-      HTTP_ADDR: ":8080"
+      PORT: ${PORT:-8080}
       DATABASE_PATH: /data/toque.db
       FETCH_INTERVAL: ${FETCH_INTERVAL:-5m}
       SAMPLE_SIZE: ${SAMPLE_SIZE:-25}

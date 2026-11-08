@@ -17,7 +17,7 @@ COPY --from=build --chown=nonroot:nonroot /out/data /data
 VOLUME ["/data"]
 
 ENV DATABASE_PATH=/data/toque.db \
-    HTTP_ADDR=:8080
+    PORT=8080
 
 EXPOSE 8080
 

@@ -37,7 +37,8 @@ Edita `.env`. Variables principales:
 |---|---|---|
 | `ELTOQUE_API_KEY` | — (req.) | Bearer token de ElToque |
 | `ELTOQUE_BASE_URL` | `https://tasas.eltoque.com/v1/trmi` | Endpoint de ElToque |
-| `HTTP_ADDR` | `:8080` | Dirección HTTP |
+| `PORT` | `8080` | Puerto de escucha HTTP |
+| `HTTP_ADDR` | `:8080` | Dirección HTTP (tiene prioridad sobre `PORT`) |
 | `DATABASE_PATH` | `./data/toque.db` | Ruta SQLite |
 | `FETCH_INTERVAL` | `5m` | Intervalo del collector |
 | `SAMPLE_SIZE` | `25` | Registros para la mediana |
@@ -171,7 +172,7 @@ Los intentos con key/secret inválidos o keys revocadas se registran en `auth_fa
 docker compose up --build
 ```
 
-La base de datos se persiste en el volumen `toque-data` (`/data/toque.db`). El servicio escucha en `:8080`.
+La base de datos se persiste en el volumen `toque-data` (`/data/toque.db`). El servicio escucha en el puerto definido por `PORT` (por defecto `8080`); el puerto publicado en el host se puede ajustar con `TOQUE_API_PORT`.
 
 > En producción termina TLS en un reverse proxy y deja `COOKIE_SECURE=true`.
 
@@ -203,7 +204,8 @@ El workflow `.github/workflows/deploy.yml`:
 
 | Variable | Default |
 |---|---|
-| `TOQUE_API_PORT` | `8080` |
+| `PORT` | `8080` |
+| `TOQUE_API_PORT` | igual a `PORT` |
 | `ELTOQUE_BASE_URL` | `https://tasas.eltoque.com/v1/trmi` |
 | `COOKIE_SECURE` | `false` (usa `true` detrás de HTTPS) |
 | `TRUST_PROXY_HEADERS` | `false` |

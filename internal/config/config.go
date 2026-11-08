@@ -54,7 +54,7 @@ func Load() (*Config, error) {
 		ElToqueBaseURL: getenv("ELTOQUE_BASE_URL", "https://tasas.eltoque.com/v1/trmi"),
 
 		DatabasePath: getenv("DATABASE_PATH", "./data/toque.db"),
-		HTTPAddr:     getenv("HTTP_ADDR", ":8080"),
+		HTTPAddr:     resolveHTTPAddr(),
 
 		FetchInterval: getenvDuration("FETCH_INTERVAL", 5*time.Minute),
 		SampleSize:    getenvInt("SAMPLE_SIZE", 25),
@@ -187,6 +187,13 @@ func normalizeHash(hash string) string {
 	hash = strings.TrimSpace(strings.ToLower(hash))
 	hash = strings.TrimPrefix(hash, "sha256:")
 	return hash
+}
+
+func resolveHTTPAddr() string {
+	if addr := getenv("HTTP_ADDR", ""); addr != "" {
+		return addr
+	}
+	return ":" + getenv("PORT", "8080")
 }
 
 func getenv(key, fallback string) string {
