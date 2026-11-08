@@ -122,4 +122,6 @@ var schema = []string{
 		message    TEXT NOT NULL,
 		detail     TEXT
 	)`,
+	`CREATE INDEX IF NOT EXISTS idx_sync_errors_time
+		ON sync_errors (created_at DESC)`,
 }

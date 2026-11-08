@@ -1,0 +1,246 @@
+{{define "diagnostics.html"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main class="container" data-refresh="30">
+  <div class="page-head">
+    <div>
+      <h1>Diagnóstico</h1>
+      <p class="muted">Registros de la base de datos y estado de la recolección (actualiza cada 30s)</p>
+    </div>
+    <div class="row">
+      <button type="button" class="ghost" data-reload>Actualizar</button>
+      {{if .Diagnostics.CollectorAvailable}}
+      <form method="post" action="/admin/diagnostics/collect" class="inline" data-confirm="¿Ejecutar la recolección de ElToque ahora?">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button type="submit">Recolectar ahora</button>
+      </form>
+      {{end}}
+    </div>
+  </div>
+
+  {{if .Error}}<div class="alert">{{.Error}}</div>{{end}}
+  {{if .OK}}<div class="ok">{{.OK}}</div>{{end}}
+
+  <section class="grid">
+    <div class="card stat">
+      <span class="muted">Tasas</span>
+      <strong>{{.Diagnostics.Summary.RatesCount}}</strong>
+      <span class="muted">registros</span>
+    </div>
+    <div class="card stat">
+      <span class="muted">Peticiones API</span>
+      <strong>{{.Diagnostics.Summary.APIRequestsCount}}</strong>
+      <span class="muted">registros</span>
+    </div>
+    <div class="card stat">
+      <span class="muted">Fallos auth</span>
+      <strong>{{.Diagnostics.Summary.AuthFailuresCount}}</strong>
+      <span class="muted">registros</span>
+    </div>
+    <div class="card stat">
+      <span class="muted">Errores sync</span>
+      <strong>{{.Diagnostics.Summary.SyncErrorsCount}}</strong>
+      <span class="muted">registros</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Estado de ElToque</h2>
+    <div class="kv">
+      <span class="muted">Endpoint</span><code>{{.Diagnostics.ElToqueBaseURL}}</code>
+      <span class="muted">Intervalo</span><span>{{.Diagnostics.FetchInterval}}</span>
+      <span class="muted">Muestras</span><span>{{.Diagnostics.SampleSize}}</span>
+      <span class="muted">Última fecha origen</span><span>{{formatDate .Diagnostics.Summary.LastRateSourceDate}}</span>
+      <span class="muted">Última recolección</span><span>{{formatDate .Diagnostics.Summary.LastRateCollectedAt}}</span>
+      <span class="muted">Última petición API</span><span>{{formatDate .Diagnostics.Summary.LastRequestAt}}</span>
+      <span class="muted">Último error sync</span><span>{{formatDate .Diagnostics.Summary.LastSyncErrorAt}}</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Filtros</h2>
+    <form method="get" action="/admin/diagnostics" class="row">
+      <label>Moneda
+        <select name="currency">
+          <option value="">Todas</option>
+          {{range .Diagnostics.Currencies}}
+          <option value="{{.}}" {{if eq . $.Diagnostics.Currency}}selected{{end}}>{{.}}</option>
+          {{end}}
+        </select>
+      </label>
+      <label>API key
+        <select name="key">
+          <option value="">Todas</option>
+          {{range .Diagnostics.FilterKeys}}
+          <option value="{{.ID}}" {{if eq .ID $.Diagnostics.KeyID}}selected{{end}}>{{.Name}}</option>
+          {{end}}
+        </select>
+      </label>
+      <label>Límite
+        <input name="limit" type="number" min="10" max="200" value="{{.Diagnostics.Limit}}">
+      </label>
+      <button type="submit" class="ghost">Aplicar</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Últimas tasas por moneda</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Moneda</th>
+            <th>Tasa</th>
+            <th>Fecha origen</th>
+            <th>Recolectado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Diagnostics.LatestRates}}
+          <tr>
+            <td>{{.CurrencyCode}}</td>
+            <td>{{printf "%.2f" .Rate}}</td>
+            <td>{{formatDate .SourceDate}}</td>
+            <td>{{formatDate .CollectedAt}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="muted">Sin tasas registradas.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Tasas recientes{{if .Diagnostics.Currency}} · {{.Diagnostics.Currency}}{{end}}</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Moneda</th>
+            <th>Tasa</th>
+            <th>Fecha origen</th>
+            <th>Source TS</th>
+            <th>Recolectado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Diagnostics.RecentRates}}
+          <tr>
+            <td>{{.CurrencyCode}}</td>
+            <td>{{printf "%.2f" .Rate}}</td>
+            <td>{{formatDate .SourceDate}}</td>
+            <td>{{.SourceTS}}</td>
+            <td>{{formatDate .CollectedAt}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="5" class="muted">Sin registros.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Errores de sincronización</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Mensaje</th>
+            <th>Detalle</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Diagnostics.SyncErrors}}
+          <tr>
+            <td>{{formatDate .CreatedAt}}</td>
+            <td>{{.Message}}</td>
+            <td>
+              {{if .Detail}}<details><summary>Ver detalle</summary><pre>{{.Detail}}</pre></details>
+              {{else}}—{{end}}
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="3" class="muted">Sin errores de sincronización.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Peticiones API recientes</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Key</th>
+            <th>Método</th>
+            <th>Ruta</th>
+            <th>Estado</th>
+            <th>ms</th>
+            <th>Req / Res</th>
+            <th>IP</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Diagnostics.Requests}}
+          <tr>
+            <td>{{formatDate .CreatedAt}}</td>
+            <td>{{if .KeyName}}{{.KeyName}}{{else}}—{{end}}</td>
+            <td>{{.Method}}</td>
+            <td>
+              <code>{{.Path}}</code>
+              {{if .Query}}<br><span class="muted">{{.Query}}</span>{{end}}
+            </td>
+            <td>
+              {{if ge .StatusCode 400}}<span class="badge off">{{.StatusCode}}</span>
+              {{else}}<span class="badge ok">{{.StatusCode}}</span>{{end}}
+            </td>
+            <td>{{.DurationMS}}</td>
+            <td>{{humanBytes .RequestBytes}} / {{humanBytes .ResponseBytes}}</td>
+            <td>{{if .RemoteIP}}{{.RemoteIP}}{{else}}—{{end}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="8" class="muted">Sin peticiones registradas.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Fallos de autenticación recientes</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Key ID</th>
+            <th>Motivo</th>
+            <th>IP</th>
+            <th>User agent</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Diagnostics.AuthFailures}}
+          <tr>
+            <td>{{formatDate .CreatedAt}}</td>
+            <td>{{if .KeyID}}<code>{{.KeyID}}</code>{{else}}—{{end}}</td>
+            <td>{{.Reason}}</td>
+            <td>{{if .RemoteIP}}{{.RemoteIP}}{{else}}—{{end}}</td>
+            <td>{{if .UserAgent}}{{.UserAgent}}{{else}}—{{end}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="5" class="muted">Sin fallos de autenticación.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}

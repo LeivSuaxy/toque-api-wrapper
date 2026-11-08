@@ -12,6 +12,7 @@ API en Go para recolectar, cachear y servir las tasas de ElToque. Incluye autent
 - Registro de cada llamada autenticada: bytes de request/response, status, duración, IP y user agent.
 - Registro separado de intentos de autenticación fallidos.
 - Panel admin con login, creación/revocación/rotación de keys y consumo 24h/7d/30d.
+- Vista de diagnóstico con tasas, errores de sincronización, peticiones API y fallos de autenticación; refresco automático cada 30s y recolección manual.
 - HTML/CSS/JS embebidos con `//go:embed`; sin Node ni CDN.
 - Sin framework web; solo `net/http` + `modernc.org/sqlite`.
 
@@ -156,6 +157,16 @@ Público. Devuelve estado de DB, cantidad de registros y última fecha recolecta
 4. Desde el detalle puedes ajustar el RPM, revocar, reactivar o rotar el secret.
 5. El dashboard muestra consumo agregado de las últimas 24 horas; el detalle muestra 24h/7d/30d.
 
+### Diagnóstico
+
+`/admin/diagnostics` muestra el estado de la base de datos para depurar la app y las consultas a ElToque:
+
+- Tasas más recientes por moneda y últimas tasas recolectadas (filtrable por moneda).
+- Errores de sincronización (`sync_errors`) con su detalle.
+- Peticiones API (`api_requests`) y fallos de autenticación (`auth_failures`), filtrables por key.
+- Botón **Recolectar ahora** para ejecutar el collector al instante.
+- La página se refresca automáticamente cada 30 segundos; también hay botón **Actualizar**.
+
 ## Trazabilidad
 
 Cada llamada autenticada a `/v1/*` se registra en `api_requests`:
@@ -178,7 +189,7 @@ La base de datos se persiste en el volumen `toque-data` (`/data/toque.db`). El s
 
 ## CI/CD (GitHub Actions → VPS)
 
-El workflow `.github/workflows/deploy.yml`:
+El workflow `.github/workflows/deploy.yml` se dispara con cada push a `main` (y manualmente):
 
 1. Ejecuta `go vet` y `go test`.
 2. Construye y publica la imagen en GHCR (`toque-api-latest` y `toque-api-<sha>`).

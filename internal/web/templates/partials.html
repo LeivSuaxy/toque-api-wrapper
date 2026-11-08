@@ -20,6 +20,8 @@
 <header class="topbar">
   <div class="brand"><span>toque</span> api</div>
   <div class="nav-right">
+    <a href="/admin">API keys</a>
+    <a href="/admin/diagnostics">Diagnóstico</a>
     <span class="muted">{{.Username}}</span>
     <form method="post" action="/admin/logout" class="inline">
       <input type="hidden" name="csrf" value="{{.CSRF}}">

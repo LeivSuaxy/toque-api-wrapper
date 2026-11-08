@@ -34,6 +34,7 @@ type adminHandlers struct {
 	limiter   *ratelimit.Limiter
 	logger    *slog.Logger
 	reveals   *revealStore
+	collector Collector
 }
 
 type pageData struct {
@@ -41,10 +42,12 @@ type pageData struct {
 	Username     string
 	CSRF         string
 	Error        string
+	OK           string
 	Keys         []store.APIKeyUsage
 	Key          store.APIKey
 	RevealSecret string
 	UsageCards   []usageCard
+	Diagnostics  *diagnosticsView
 }
 
 type usageCard struct {
@@ -62,6 +65,7 @@ func newAdminHandlers(deps Deps) *adminHandlers {
 		limiter:   deps.Limiter,
 		logger:    deps.Logger,
 		reveals:   newRevealStore(),
+		collector: deps.Collector,
 	}
 }
 

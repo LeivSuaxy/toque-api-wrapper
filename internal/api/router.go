@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -17,6 +18,10 @@ import (
 	"github.com/LeivSuaxy/toque-api-provider/internal/web"
 )
 
+type Collector interface {
+	RunOnce(ctx context.Context) error
+}
+
 type Deps struct {
 	Config    *config.Config
 	Store     *store.Store
@@ -27,6 +32,7 @@ type Deps struct {
 	Trace     *trace.Middleware
 	Templates *web.Templates
 	Logger    *slog.Logger
+	Collector Collector
 }
 
 func NewRouter(deps Deps) http.Handler {
@@ -51,6 +57,8 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("POST /admin/keys/{id}/revoke", deps.Sessions.Require(http.HandlerFunc(admin.revokeKey)))
 	mux.Handle("POST /admin/keys/{id}/enable", deps.Sessions.Require(http.HandlerFunc(admin.enableKey)))
 	mux.Handle("POST /admin/keys/{id}/rotate", deps.Sessions.Require(http.HandlerFunc(admin.rotateKey)))
+	mux.Handle("GET /admin/diagnostics", deps.Sessions.Require(http.HandlerFunc(admin.diagnostics)))
+	mux.Handle("POST /admin/diagnostics/collect", deps.Sessions.Require(http.HandlerFunc(admin.collectNow)))
 	mux.Handle("GET /admin/static/", http.StripPrefix("/admin/static/", deps.Templates.Static()))
 
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {

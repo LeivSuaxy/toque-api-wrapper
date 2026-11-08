@@ -111,6 +111,7 @@ func main() {
 		Trace:     tracer,
 		Templates: templates,
 		Logger:    logger,
+		Collector: collectorRunner,
 	})
 
 	var workers sync.WaitGroup

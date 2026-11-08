@@ -2,7 +2,7 @@ name: Build and Deploy
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -75,7 +75,6 @@ jobs:
           source: docker-compose.yml
           target: ${{ env.DEPLOY_DIR }}
           overwrite: true
-          mkdirs: true
 
       - name: Deploy compose stack via SSH
         uses: appleboy/ssh-action@v1
