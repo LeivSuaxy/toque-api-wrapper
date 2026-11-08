@@ -133,8 +133,8 @@ jobs:
           IMAGE_BASE: ${{ env.IMAGE_BASE }}
           DEPLOY_DIR: ${{ env.DEPLOY_DIR }}
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
-          PORT: ${{ vars.PORT || '8080' }}
-          TOQUE_API_PORT: ${{ vars.TOQUE_API_PORT || vars.PORT || '8080' }}
+          PORT: ${{ vars.PORT || secrets.PORT || '8080' }}
+          TOQUE_API_PORT: ${{ vars.TOQUE_API_PORT || vars.PORT || secrets.PORT || '8080' }}
           ELTOQUE_API_KEY: ${{ secrets.ELTOQUE_API_KEY }}
           ELTOQUE_BASE_URL: ${{ vars.ELTOQUE_BASE_URL || 'https://tasas.eltoque.com/v1/trmi' }}
           SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
