@@ -19,6 +19,7 @@ import (
 	"github.com/LeivSuaxy/toque-api-provider/internal/ratelimit"
 	"github.com/LeivSuaxy/toque-api-provider/internal/rates"
 	"github.com/LeivSuaxy/toque-api-provider/internal/store"
+	"github.com/LeivSuaxy/toque-api-provider/internal/timeutil"
 	"github.com/LeivSuaxy/toque-api-provider/internal/trace"
 	"github.com/LeivSuaxy/toque-api-provider/internal/web"
 )
@@ -48,11 +49,14 @@ func setupEnv(t *testing.T, rpm, burst int) *testEnv {
 	if err := database.Migrate(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	firstTS := time.Date(2026, 11, 8, 8, 35, 0, 0, timeutil.Havana).Unix()
+	secondTS := time.Date(2026, 11, 8, 8, 40, 0, 0, timeutil.Havana).Unix()
+	thirdTS := time.Date(2026, 11, 8, 8, 45, 0, 0, timeutil.Havana).Unix()
 	if err := database.UpsertRates(ctx, []store.RateRecord{
-		{CurrencyCode: "USD", Rate: 10, SourceDate: "2026-11-08 08:35:00", SourceTS: 1},
-		{CurrencyCode: "USD", Rate: 20, SourceDate: "2026-11-08 08:40:00", SourceTS: 2},
-		{CurrencyCode: "USD", Rate: 30, SourceDate: "2026-11-08 08:45:00", SourceTS: 3},
-		{CurrencyCode: "ECU", Rate: 100, SourceDate: "2026-11-08 08:45:00", SourceTS: 3},
+		{CurrencyCode: "USD", Rate: 10, SourceDate: "2026-11-08 08:35:00", SourceTS: firstTS},
+		{CurrencyCode: "USD", Rate: 20, SourceDate: "2026-11-08 08:40:00", SourceTS: secondTS},
+		{CurrencyCode: "USD", Rate: 30, SourceDate: "2026-11-08 08:45:00", SourceTS: thirdTS},
+		{CurrencyCode: "ECU", Rate: 100, SourceDate: "2026-11-08 08:45:00", SourceTS: thirdTS},
 	}); err != nil {
 		t.Fatalf("seed rates: %v", err)
 	}
@@ -177,6 +181,9 @@ func TestRatesFixedMedianByDefault(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
+	if payload.Mode != "aggregate" {
+		t.Fatalf("mode = %q, want aggregate", payload.Mode)
+	}
 	if !payload.Fixed || payload.SampleSize != 25 {
 		t.Fatalf("payload = %+v", payload)
 	}
@@ -231,6 +238,125 @@ func TestRatesFilterAndErrors(t *testing.T) {
 	response = env.request(http.MethodGet, "/v1/rates?fixed=maybe", nil, env.headers(), nil)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("invalid fixed status = %d", response.Code)
+	}
+}
+
+func TestRatesSeriesDateRange(t *testing.T) {
+	env := setupEnv(t, 60, 10)
+
+	response := env.request(
+		http.MethodGet,
+		"/v1/rates?date_from=2026-11-08&date_to=2026-11-08&currency=USD",
+		nil,
+		env.headers(),
+		nil,
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+
+	var payload seriesResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if payload.Mode != "series" || payload.Limit != seriesDefaultLimit {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if payload.DateFrom != "2026-11-08" || payload.DateTo != "2026-11-08" {
+		t.Fatalf("range = %q..%q", payload.DateFrom, payload.DateTo)
+	}
+	if len(payload.Data) != 1 || payload.Data[0].CurrencyCode != "USD" {
+		t.Fatalf("data = %+v", payload.Data)
+	}
+	usd := payload.Data[0]
+	if len(usd.Points) != 3 || usd.Truncated {
+		t.Fatalf("USD series = %+v", usd)
+	}
+	if usd.Points[0].Rate != 30 || usd.Points[2].Rate != 10 {
+		t.Fatalf("points = %+v", usd.Points)
+	}
+}
+
+func TestRatesSeriesLimit(t *testing.T) {
+	env := setupEnv(t, 60, 10)
+
+	response := env.request(
+		http.MethodGet,
+		"/v1/rates?date_from=2026-11-08&date_to=2026-11-08&currency=USD&limit=2",
+		nil,
+		env.headers(),
+		nil,
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+
+	var payload seriesResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if payload.Limit != 2 || len(payload.Data) != 1 {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if len(payload.Data[0].Points) != 2 || !payload.Data[0].Truncated {
+		t.Fatalf("USD series = %+v", payload.Data[0])
+	}
+}
+
+func TestRatesSeriesOpenEnded(t *testing.T) {
+	env := setupEnv(t, 60, 10)
+
+	for _, target := range []string{
+		"/v1/rates?date_from=2026-11-08&currency=USD",
+		"/v1/rates?date_to=2026-11-08&currency=USD",
+	} {
+		response := env.request(http.MethodGet, target, nil, env.headers(), nil)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, body = %s", target, response.Code, response.Body.String())
+		}
+
+		var payload seriesResponse
+		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("%s decode: %v", target, err)
+		}
+		if len(payload.Data) != 1 || len(payload.Data[0].Points) != 3 {
+			t.Fatalf("%s data = %+v", target, payload.Data)
+		}
+	}
+}
+
+func TestRatesSeriesValidation(t *testing.T) {
+	env := setupEnv(t, 60, 10)
+
+	cases := []struct {
+		target string
+		status int
+	}{
+		{"/v1/rates?date_from=not-a-date", http.StatusBadRequest},
+		{"/v1/rates?date_to=2026-13-01", http.StatusBadRequest},
+		{"/v1/rates?date_from=2026-11-09&date_to=2026-11-08", http.StatusBadRequest},
+		{"/v1/rates?date_from=2026-11-08&limit=0", http.StatusBadRequest},
+		{"/v1/rates?date_from=2026-11-08&limit=10001", http.StatusBadRequest},
+		{"/v1/rates?date_from=2026-11-09", http.StatusServiceUnavailable},
+		{"/v1/rates?date_from=2026-11-09&currency=USD", http.StatusNotFound},
+	}
+
+	for _, test := range cases {
+		response := env.request(http.MethodGet, test.target, nil, env.headers(), nil)
+		if response.Code != test.status {
+			t.Fatalf("%s status = %d, want %d", test.target, response.Code, test.status)
+		}
+	}
+
+	ignored := env.request(
+		http.MethodGet,
+		"/v1/rates?date_from=2026-11-08&currency=USD&fixed=maybe",
+		nil,
+		env.headers(),
+		nil,
+	)
+	if ignored.Code != http.StatusOK {
+		t.Fatalf("fixed should be ignored in series mode: status = %d, body = %s", ignored.Code, ignored.Body.String())
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/LeivSuaxy/toque-api-provider/internal/store"
 )
@@ -20,6 +21,27 @@ func (f fakeStore) RecentRates(_ context.Context, code string, limit int) ([]sto
 		return nil, f.err
 	}
 	rates := f.recent[code]
+	return rates, nil
+}
+
+func (f fakeStore) RatesBetween(_ context.Context, code string, fromTS, toTS *int64, limit int) ([]store.Rate, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	rates := make([]store.Rate, 0, limit)
+	for _, rate := range f.recent[code] {
+		if fromTS != nil && rate.SourceTS < *fromTS {
+			continue
+		}
+		if toTS != nil && rate.SourceTS >= *toTS {
+			continue
+		}
+		rates = append(rates, rate)
+		if len(rates) == limit {
+			break
+		}
+	}
 	return rates, nil
 }
 
@@ -103,6 +125,98 @@ func TestGetLatest(t *testing.T) {
 	}
 	if result.Rate != 930 || result.RecordsUsed != 1 {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestGetSeries(t *testing.T) {
+	service := NewService(fakeStore{
+		recent: map[string][]store.Rate{
+			"USD": {
+				{CurrencyCode: "USD", Rate: 30, SourceDate: "2026-11-08 08:45:00", SourceTS: 3},
+				{CurrencyCode: "USD", Rate: 15, SourceDate: "2026-11-08 08:40:00", SourceTS: 2},
+				{CurrencyCode: "USD", Rate: 10, SourceDate: "2026-11-08 08:35:00", SourceTS: 1},
+			},
+		},
+	}, 25)
+
+	from := time.Unix(2, 0)
+	to := time.Unix(4, 0)
+	series, err := service.GetSeries(context.Background(), "USD", SeriesOptions{
+		From:  &from,
+		To:    &to,
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("GetSeries: %v", err)
+	}
+	if len(series.Points) != 2 || series.Truncated {
+		t.Fatalf("series = %+v", series)
+	}
+	if series.Points[0].Rate != 30 || series.Points[0].SourceTS != 3 {
+		t.Fatalf("points = %+v", series.Points)
+	}
+}
+
+func TestGetSeriesTruncated(t *testing.T) {
+	service := NewService(fakeStore{
+		recent: map[string][]store.Rate{
+			"USD": {
+				{CurrencyCode: "USD", Rate: 30, SourceDate: "2026-11-08 08:45:00", SourceTS: 3},
+				{CurrencyCode: "USD", Rate: 15, SourceDate: "2026-11-08 08:40:00", SourceTS: 2},
+			},
+		},
+	}, 25)
+
+	series, err := service.GetSeries(context.Background(), "USD", SeriesOptions{Limit: 1})
+	if err != nil {
+		t.Fatalf("GetSeries: %v", err)
+	}
+	if len(series.Points) != 1 || !series.Truncated {
+		t.Fatalf("series = %+v", series)
+	}
+	if series.Points[0].Rate != 30 {
+		t.Fatalf("points = %+v", series.Points)
+	}
+}
+
+func TestGetSeriesMissingCurrency(t *testing.T) {
+	service := NewService(fakeStore{}, 25)
+
+	_, err := service.GetSeries(context.Background(), "USD", SeriesOptions{Limit: 10})
+	if !errors.Is(err, ErrCurrencyNotFound) {
+		t.Fatalf("err = %v, want ErrCurrencyNotFound", err)
+	}
+
+	_, err = service.GetSeries(context.Background(), "USD", SeriesOptions{})
+	if !errors.Is(err, ErrInvalidLimit) {
+		t.Fatalf("err = %v, want ErrInvalidLimit", err)
+	}
+}
+
+func TestGetAllSeries(t *testing.T) {
+	service := NewService(fakeStore{
+		recent: map[string][]store.Rate{
+			"USD": {{CurrencyCode: "USD", Rate: 10, SourceDate: "2026-11-08 08:45:00", SourceTS: 1}},
+			"ECU": {},
+		},
+		codes: []string{"ECU", "USD"},
+	}, 25)
+
+	results, err := service.GetAllSeries(context.Background(), SeriesOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetAllSeries: %v", err)
+	}
+	if len(results) != 1 || results[0].CurrencyCode != "USD" {
+		t.Fatalf("results = %+v", results)
+	}
+}
+
+func TestGetAllSeriesNoData(t *testing.T) {
+	service := NewService(fakeStore{}, 25)
+
+	_, err := service.GetAllSeries(context.Background(), SeriesOptions{Limit: 10})
+	if !errors.Is(err, ErrNoData) {
+		t.Fatalf("err = %v, want ErrNoData", err)
 	}
 }
 

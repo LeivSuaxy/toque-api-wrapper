@@ -11,12 +11,13 @@ import (
 	"sort"
 	"strings"
 	"time"
-	_ "time/tzdata"
+
+	"github.com/LeivSuaxy/toque-api-provider/internal/timeutil"
 )
 
 const defaultBaseURL = "https://tasas.eltoque.com/v1/trmi"
 
-var havanaLocation = mustLoadLocation("America/Havana")
+var havanaLocation = timeutil.Havana
 
 type Client struct {
 	baseURL    string
@@ -162,14 +163,6 @@ type rawResponse struct {
 	Minutes int                 `json:"minutes"`
 	Seconds int                 `json:"seconds"`
 	Tasas   map[string]*float64 `json:"tasas"`
-}
-
-func mustLoadLocation(name string) *time.Location {
-	location, err := time.LoadLocation(name)
-	if err != nil {
-		panic(fmt.Sprintf("load location %s: %v", name, err))
-	}
-	return location
 }
 
 func SortedCodes(tasas map[string]float64) []string {

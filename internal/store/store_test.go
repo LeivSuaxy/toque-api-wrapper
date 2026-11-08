@@ -95,6 +95,51 @@ func TestRatesUpsertAndQueries(t *testing.T) {
 	}
 }
 
+func TestRatesBetween(t *testing.T) {
+	database := newTestStore(t)
+	ctx := context.Background()
+
+	if err := database.UpsertRates(ctx, []RateRecord{
+		{CurrencyCode: "USD", Rate: 10, SourceDate: "2026-11-01 08:00:00", SourceTS: 1},
+		{CurrencyCode: "USD", Rate: 20, SourceDate: "2026-11-02 08:00:00", SourceTS: 2},
+		{CurrencyCode: "USD", Rate: 30, SourceDate: "2026-11-03 08:00:00", SourceTS: 3},
+		{CurrencyCode: "USD", Rate: 40, SourceDate: "2026-11-04 08:00:00", SourceTS: 4},
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	from := int64(2)
+	to := int64(4)
+	ranged, err := database.RatesBetween(ctx, "USD", &from, &to, 10)
+	if err != nil {
+		t.Fatalf("rates between: %v", err)
+	}
+	if len(ranged) != 2 || ranged[0].SourceTS != 3 || ranged[1].SourceTS != 2 {
+		t.Fatalf("ranged = %+v", ranged)
+	}
+
+	openEnded, err := database.RatesBetween(ctx, "USD", &from, nil, 10)
+	if err != nil {
+		t.Fatalf("open ended: %v", err)
+	}
+	if len(openEnded) != 3 || openEnded[0].SourceTS != 4 {
+		t.Fatalf("open ended = %+v", openEnded)
+	}
+
+	limited, err := database.RatesBetween(ctx, "USD", nil, nil, 1)
+	if err != nil {
+		t.Fatalf("limited: %v", err)
+	}
+	if len(limited) != 1 || limited[0].SourceTS != 4 {
+		t.Fatalf("limited = %+v", limited)
+	}
+
+	empty, err := database.RatesBetween(ctx, "USD", nil, nil, 0)
+	if err != nil || empty != nil {
+		t.Fatalf("empty = %+v, err = %v", empty, err)
+	}
+}
+
 func TestAPIKeysLifecycle(t *testing.T) {
 	database := newTestStore(t)
 	ctx := context.Background()

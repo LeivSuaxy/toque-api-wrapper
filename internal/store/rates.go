@@ -104,6 +104,49 @@ func (s *Store) RecentRates(ctx context.Context, currencyCode string, limit int)
 	return rates, nil
 }
 
+func (s *Store) RatesBetween(ctx context.Context, currencyCode string, fromTS, toTS *int64, limit int) ([]Rate, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	query := `
+		SELECT id, currency_code, rate, source_date, source_ts, collected_at
+		FROM rates
+		WHERE currency_code = ?
+	`
+	args := make([]any, 0, 4)
+	args = append(args, currencyCode)
+	if fromTS != nil {
+		query += ` AND source_ts >= ?`
+		args = append(args, *fromTS)
+	}
+	if toTS != nil {
+		query += ` AND source_ts < ?`
+		args = append(args, *toTS)
+	}
+	query += ` ORDER BY source_ts DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query rates between: %w", err)
+	}
+	defer rows.Close()
+
+	rates := make([]Rate, 0, limit)
+	for rows.Next() {
+		rate, err := scanRate(rows)
+		if err != nil {
+			return nil, err
+		}
+		rates = append(rates, rate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate rates between: %w", err)
+	}
+	return rates, nil
+}
+
 func (s *Store) CurrencyCodes(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT currency_code

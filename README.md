@@ -7,6 +7,7 @@ API en Go para recolectar, cachear y servir las tasas de ElToque. Incluye autent
 - Recolección automática de ElToque cada 5 minutos (configurable).
 - Persistencia SQLite (WAL) con retención de tasas y logs.
 - `GET /v1/rates` con `fixed=true` (mediana de los últimos 25) o `fixed=false` (último registro).
+- `GET /v1/rates?date_from=...&date_to=...` para consultar la serie histórica por rango de fechas.
 - Autenticación con `X-API-Key` + `X-API-Secret`.
 - Rate limit por api key (RPM configurable por key).
 - Registro de cada llamada autenticada: bytes de request/response, status, duración, IP y user agent.
@@ -100,8 +101,13 @@ X-API-Secret: ...
 
 | Query | Default | Descripción |
 |---|---|---|
-| `fixed` | `true` | `true`: mediana de los últimos `SAMPLE_SIZE`; `false`: último registro |
+| `fixed` | `true` | `true`: mediana de los últimos `SAMPLE_SIZE`; `false`: último registro. Se ignora cuando hay rango de fechas. |
 | `currency` | todas | Filtro por código (`USD`, `ECU`, `MLC`, `TRX`, `USDT_TRC20`, `BTC`, ...) |
+| `date_from` | — | Inicio del rango en formato `YYYY-MM-DD` (`America/Havana`). Si se omite, sin límite inferior. |
+| `date_to` | — | Fin del rango inclusivo en formato `YYYY-MM-DD` (`America/Havana`). Si se omite, sin límite superior. |
+| `limit` | `1000` | Máximo de puntos por moneda en modo serie. Rango válido: `1`–`10000`. |
+
+Sin `date_from` ni `date_to` se devuelve el modo agregado:
 
 ```bash
 curl -H "X-API-Key: $KEY" -H "X-API-Secret: $SECRET" \
@@ -111,10 +117,9 @@ curl -H "X-API-Key: $KEY" -H "X-API-Secret: $SECRET" \
   'http://localhost:8080/v1/rates?fixed=false&currency=USD'
 ```
 
-Respuesta:
-
 ```json
 {
+  "mode": "aggregate",
   "fixed": true,
   "sample_size": 25,
   "generated_at": "2026-11-08T15:30:00Z",
@@ -132,7 +137,42 @@ Respuesta:
 }
 ```
 
-Errores: `401` sin credenciales válidas, `429` rate limit, `400` `fixed` inválido, `404` moneda desconocida, `503` sin datos.
+Con `date_from` y/o `date_to` se devuelve la serie histórica de todos los registros almacenados en el rango, del más reciente al más antiguo:
+
+```bash
+curl -H "X-API-Key: $KEY" -H "X-API-Secret: $SECRET" \
+  'http://localhost:8080/v1/rates?date_from=2026-11-01&date_to=2026-11-08&currency=USD&limit=500'
+
+curl -H "X-API-Key: $KEY" -H "X-API-Secret: $SECRET" \
+  'http://localhost:8080/v1/rates?date_from=2026-11-08'
+```
+
+```json
+{
+  "mode": "series",
+  "date_from": "2026-11-01",
+  "date_to": "2026-11-08",
+  "limit": 500,
+  "generated_at": "2026-11-08T15:30:00Z",
+  "data": [
+    {
+      "currency_code": "USD",
+      "truncated": false,
+      "points": [
+        {
+          "rate": 930,
+          "source_date": "2026-11-08 08:45:00",
+          "source_ts": 1762613105
+        }
+      ]
+    }
+  ]
+}
+```
+
+`truncated` indica que la moneda superó `limit` y se devolvieron solo los puntos más recientes. Las fechas se interpretan en `America/Havana` y `date_to` incluye el día completo.
+
+Errores: `401` sin credenciales válidas, `429` rate limit, `400` `fixed` inválido, `400` `invalid_date`/`invalid_date_range`/`invalid_limit`, `404` moneda desconocida o sin datos en el rango, `503` sin datos.
 
 ### Rate limit
 

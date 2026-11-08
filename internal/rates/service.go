@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/LeivSuaxy/toque-api-provider/internal/store"
 )
@@ -12,10 +13,12 @@ import (
 var (
 	ErrNoData           = errors.New("rates: no data")
 	ErrCurrencyNotFound = errors.New("rates: currency not found")
+	ErrInvalidLimit     = errors.New("rates: invalid limit")
 )
 
 type RateStore interface {
 	RecentRates(ctx context.Context, currencyCode string, limit int) ([]store.Rate, error)
+	RatesBetween(ctx context.Context, currencyCode string, fromTS, toTS *int64, limit int) ([]store.Rate, error)
 	LatestRate(ctx context.Context, currencyCode string) (store.Rate, error)
 	CurrencyCodes(ctx context.Context) ([]string, error)
 }
@@ -33,6 +36,24 @@ type Result struct {
 	Min          float64 `json:"min"`
 	Max          float64 `json:"max"`
 	LatestRate   float64 `json:"latest_rate"`
+}
+
+type SeriesOptions struct {
+	From  *time.Time
+	To    *time.Time
+	Limit int
+}
+
+type Point struct {
+	Rate       float64 `json:"rate"`
+	SourceDate string  `json:"source_date"`
+	SourceTS   int64   `json:"source_ts"`
+}
+
+type Series struct {
+	CurrencyCode string  `json:"currency_code"`
+	Points       []Point `json:"points"`
+	Truncated    bool    `json:"truncated"`
 }
 
 func NewService(store RateStore, sampleSize int) *Service {
@@ -98,6 +119,76 @@ func (s *Service) latest(ctx context.Context, currencyCode string) (Result, erro
 		Max:          round2(latest.Rate),
 		LatestRate:   round2(latest.Rate),
 	}, nil
+}
+
+func (s *Service) GetSeries(ctx context.Context, currencyCode string, opts SeriesOptions) (Series, error) {
+	if opts.Limit <= 0 {
+		return Series{}, ErrInvalidLimit
+	}
+
+	var fromTS, toTS *int64
+	if opts.From != nil {
+		value := opts.From.Unix()
+		fromTS = &value
+	}
+	if opts.To != nil {
+		value := opts.To.Unix()
+		toTS = &value
+	}
+
+	rows, err := s.store.RatesBetween(ctx, currencyCode, fromTS, toTS, opts.Limit+1)
+	if err != nil {
+		return Series{}, err
+	}
+	if len(rows) == 0 {
+		return Series{}, ErrCurrencyNotFound
+	}
+
+	truncated := len(rows) > opts.Limit
+	if truncated {
+		rows = rows[:opts.Limit]
+	}
+
+	points := make([]Point, len(rows))
+	for i, row := range rows {
+		points[i] = Point{
+			Rate:       round2(row.Rate),
+			SourceDate: row.SourceDate,
+			SourceTS:   row.SourceTS,
+		}
+	}
+
+	return Series{
+		CurrencyCode: currencyCode,
+		Points:       points,
+		Truncated:    truncated,
+	}, nil
+}
+
+func (s *Service) GetAllSeries(ctx context.Context, opts SeriesOptions) ([]Series, error) {
+	codes, err := s.store.CurrencyCodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(codes) == 0 {
+		return nil, ErrNoData
+	}
+
+	results := make([]Series, 0, len(codes))
+	for _, code := range codes {
+		series, err := s.GetSeries(ctx, code, opts)
+		if errors.Is(err, ErrCurrencyNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, series)
+	}
+	if len(results) == 0 {
+		return nil, ErrNoData
+	}
+	return results, nil
 }
 
 func (s *Service) GetAll(ctx context.Context, fixed bool) ([]Result, error) {
