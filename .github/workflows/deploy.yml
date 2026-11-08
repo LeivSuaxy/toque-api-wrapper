@@ -1,0 +1,154 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+concurrency:
+  group: toque-api-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: go.sum
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set lowercase image base
+        run: echo "IMAGE_BASE=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}:toque-api-latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}:toque-api-${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_DIR: /docker/toque-api
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set lowercase image base
+        run: echo "IMAGE_BASE=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Copy compose file to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_KEY_PASSPHRASE }}
+          source: docker-compose.yml
+          target: ${{ env.DEPLOY_DIR }}
+          overwrite: true
+          mkdirs: true
+
+      - name: Deploy compose stack via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_KEY_PASSPHRASE }}
+          envs: IMAGE_BASE,DEPLOY_DIR,GHCR_PULL_TOKEN,TOQUE_API_PORT,ELTOQUE_API_KEY,ELTOQUE_BASE_URL,SUPERADMIN_USERNAME,SUPERADMIN_PASSWORD_HASH,SESSION_SECRET,API_SECRET_PEPPER,COOKIE_SECURE,TRUST_PROXY_HEADERS,LOG_LEVEL,FETCH_INTERVAL,SAMPLE_SIZE,RETENTION,REQUEST_LOG_RETENTION,AUTH_FAILURE_RETENTION,RATE_LIMIT_PER_MINUTE,RATE_LIMIT_BURST,LOGIN_RATE_LIMIT_PER_MINUTE,ADMIN_SESSION_TTL
+          script: |
+            set -e
+            cd "$DEPLOY_DIR"
+
+            COMPOSE="docker compose"
+            if ! $COMPOSE version >/dev/null 2>&1; then
+              COMPOSE="docker-compose"
+            fi
+
+            : "${ELTOQUE_API_KEY:?ELTOQUE_API_KEY is required}"
+            : "${SUPERADMIN_USERNAME:?SUPERADMIN_USERNAME is required}"
+            : "${SUPERADMIN_PASSWORD_HASH:?SUPERADMIN_PASSWORD_HASH is required}"
+            : "${SESSION_SECRET:?SESSION_SECRET is required}"
+            : "${API_SECRET_PEPPER:?API_SECRET_PEPPER is required}"
+
+            if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
+              echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            fi
+
+            # Secrets are exported by the SSH action and interpolated by Compose;
+            # no .env file is left on the VPS.
+            rm -f .env
+            export TOQUE_API_IMAGE="ghcr.io/$IMAGE_BASE:toque-api-${{ github.sha }}"
+
+            # Recreate cleanly if a previous standalone container owns the name.
+            docker rm -f toque-api 2>/dev/null || true
+
+            $COMPOSE pull
+            $COMPOSE up -d --remove-orphans --no-build
+
+            for i in $(seq 1 24); do
+              cid=$($COMPOSE ps -q toque-api 2>/dev/null || true)
+              status=$(docker inspect --format '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo "none")
+              echo "toque-api health: $status"
+              if [ "$status" = "healthy" ]; then
+                $COMPOSE ps
+                exit 0
+              fi
+              sleep 5
+            done
+
+            echo "toque-api did not become healthy"
+            $COMPOSE logs --tail 120
+            exit 1
+        env:
+          IMAGE_BASE: ${{ env.IMAGE_BASE }}
+          DEPLOY_DIR: ${{ env.DEPLOY_DIR }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          TOQUE_API_PORT: ${{ vars.TOQUE_API_PORT || '8080' }}
+          ELTOQUE_API_KEY: ${{ secrets.ELTOQUE_API_KEY }}
+          ELTOQUE_BASE_URL: ${{ vars.ELTOQUE_BASE_URL || 'https://tasas.eltoque.com/v1/trmi' }}
+          SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
+          SUPERADMIN_PASSWORD_HASH: ${{ secrets.SUPERADMIN_PASSWORD_HASH }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          API_SECRET_PEPPER: ${{ secrets.API_SECRET_PEPPER }}
+          COOKIE_SECURE: ${{ vars.COOKIE_SECURE || 'false' }}
+          TRUST_PROXY_HEADERS: ${{ vars.TRUST_PROXY_HEADERS || 'false' }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'info' }}
+          FETCH_INTERVAL: ${{ vars.FETCH_INTERVAL || '5m' }}
+          SAMPLE_SIZE: ${{ vars.SAMPLE_SIZE || '25' }}
+          RETENTION: ${{ vars.RETENTION || '720h' }}
+          REQUEST_LOG_RETENTION: ${{ vars.REQUEST_LOG_RETENTION || '2160h' }}
+          AUTH_FAILURE_RETENTION: ${{ vars.AUTH_FAILURE_RETENTION || '720h' }}
+          RATE_LIMIT_PER_MINUTE: ${{ vars.RATE_LIMIT_PER_MINUTE || '60' }}
+          RATE_LIMIT_BURST: ${{ vars.RATE_LIMIT_BURST || '60' }}
+          LOGIN_RATE_LIMIT_PER_MINUTE: ${{ vars.LOGIN_RATE_LIMIT_PER_MINUTE || '5' }}
+          ADMIN_SESSION_TTL: ${{ vars.ADMIN_SESSION_TTL || '12h' }}

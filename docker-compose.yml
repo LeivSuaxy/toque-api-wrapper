@@ -1,0 +1,41 @@
+services:
+  toque-api:
+    image: ${TOQUE_API_IMAGE:-toque-api-provider:local}
+    build: .
+    container_name: toque-api
+    restart: unless-stopped
+    ports:
+      - "${TOQUE_API_PORT:-8080}:8080"
+    environment:
+      ELTOQUE_API_KEY: ${ELTOQUE_API_KEY:?ELTOQUE_API_KEY is required}
+      ELTOQUE_BASE_URL: ${ELTOQUE_BASE_URL:-https://tasas.eltoque.com/v1/trmi}
+      HTTP_ADDR: ":8080"
+      DATABASE_PATH: /data/toque.db
+      FETCH_INTERVAL: ${FETCH_INTERVAL:-5m}
+      SAMPLE_SIZE: ${SAMPLE_SIZE:-25}
+      RETENTION: ${RETENTION:-720h}
+      REQUEST_LOG_RETENTION: ${REQUEST_LOG_RETENTION:-2160h}
+      AUTH_FAILURE_RETENTION: ${AUTH_FAILURE_RETENTION:-720h}
+      SUPERADMIN_USERNAME: ${SUPERADMIN_USERNAME:?SUPERADMIN_USERNAME is required}
+      SUPERADMIN_PASSWORD_HASH: ${SUPERADMIN_PASSWORD_HASH:?SUPERADMIN_PASSWORD_HASH is required}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      API_SECRET_PEPPER: ${API_SECRET_PEPPER:?API_SECRET_PEPPER is required}
+      ADMIN_SESSION_TTL: ${ADMIN_SESSION_TTL:-12h}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-60}
+      LOGIN_RATE_LIMIT_PER_MINUTE: ${LOGIN_RATE_LIMIT_PER_MINUTE:-5}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - toque-data:/data
+    healthcheck:
+      test: ["CMD", "/toque-api", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    stop_grace_period: 15s
+
+volumes:
+  toque-data:

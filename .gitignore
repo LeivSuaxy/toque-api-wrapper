@@ -1,0 +1,28 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Data / databases
+data/
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Build artifacts
+/api
+/toque-api
+/bin/
+/dist/
+
+# Go
+*.test
+*.out
+coverage.*
+vendor/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,67 @@
+{{define "dashboard.html"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main class="container">
+  <div class="page-head">
+    <div>
+      <h1>API keys</h1>
+      <p class="muted">Consumo en las últimas 24 horas</p>
+    </div>
+  </div>
+
+  {{if .Error}}<div class="alert">{{.Error}}</div>{{end}}
+
+  <section class="card">
+    <h2>Crear key</h2>
+    <form method="post" action="/admin/keys" class="row">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label class="grow">Nombre
+        <input name="name" required maxlength="80" placeholder="ej. bot-telegram">
+      </label>
+      <label>RPM
+        <input name="rate_limit_per_minute" type="number" min="1" max="100000" value="60" required>
+      </label>
+      <button type="submit">Generar</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Key</th>
+            <th>Estado</th>
+            <th>RPM</th>
+            <th>24h</th>
+            <th>Req / Res</th>
+            <th>Último uso</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Keys}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td><code>{{maskKey .KeyID}}</code></td>
+            <td>
+              {{if .Enabled}}<span class="badge ok">activa</span>
+              {{else}}<span class="badge off">revocada</span>{{end}}
+            </td>
+            <td>{{.RateLimitPerMinute}}</td>
+            <td>{{.Requests}}</td>
+            <td>{{humanBytes .RequestBytes}} / {{humanBytes .ResponseBytes}}</td>
+            <td>{{formatDate .LastUsedAt}}</td>
+            <td class="actions"><a href="/admin/keys/{{.ID}}">Detalle</a></td>
+          </tr>
+          {{else}}
+          <tr><td colspan="8" class="muted">No hay api keys todavía.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}
